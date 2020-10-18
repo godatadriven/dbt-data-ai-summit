@@ -1,0 +1,18 @@
+default:
+  target: default
+  outputs:
+    default:
+      method: http
+      type: spark
+      schema: preprocessing
+      organization: "{{ env_var('DATABRICKS_ORGANISATION') | as_text }}"
+      host: westeurope.azuredatabricks.net
+      port: 443
+      token: "{{ env_var('DATABRICKS_TOKEN') }}"
+      cluster: "{{ env_var('DATABRICKS_CLUSTER') }}"
+      connect_retries: 20
+      connect_timeout: 60
+      threads: 8
+
+config:
+  send_anonymous_usage_stats: False

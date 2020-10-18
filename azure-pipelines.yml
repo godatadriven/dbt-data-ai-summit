@@ -1,0 +1,140 @@
+variables:
+  python.version: 3.7 # Same as in Databricks
+
+trigger:
+  branches:
+    include:
+      - '*'
+
+stages:
+  - stage: Test
+    jobs:
+      - job: TestsAndChecks
+        steps:
+          - task: UsePythonVersion@0
+            displayName: Use Python $(python.version)
+            inputs:
+              versionSpec: $(python.version)
+
+          - script: pip3 install pre-commit
+            displayName: Install pre-commit
+
+          - script: pre-commit run --all-files
+            displayName: Run pre-commit hooks
+
+  # Deployment to Acceptance
+  - stage: DeployToAcceptance
+    dependsOn:
+      - Test
+    condition: succeeded('Test')
+    jobs:
+      - ${{ if ne(variables['Build.Reason'], 'Schedule') }}:
+        - deployment: Approval
+          condition: ne(variables['Build.Reason'], 'Schedule')
+          displayName: Deploy to acceptance
+          environment: 'Acceptance'
+
+      - job: DeployToAcceptance
+        timeoutInMinutes: 300
+        steps:
+          - task: UsePythonVersion@0
+            displayName: Use Python $(python.version)
+            inputs:
+              versionSpec: $(python.version)
+
+          - task: AzureKeyVault@1
+            inputs:
+              azureSubscription: 'EuAh-S04-Acc-Odfc-Acc-01'
+              KeyVaultName: 'WeEu-S04-Acc-Kv-Odfc-02'
+              secretsFilter: '*'
+              runAsPreJob: true # Azure DevOps Services only
+
+          - script: sudo apt-get install libsasl2-dev
+            displayName: Install dependencies
+
+          - script: pip3 install dbt-spark
+            displayName: Install DBT
+
+          - bash: dbt debug --profiles-dir=`pwd`
+            displayName: DBT debug (check connection)
+            env:
+              DATABRICKS_ORGANISATION: $(azure-databricks-organization-acc)
+              DATABRICKS_CLUSTER: $(azure-databricks-cluster-acc)
+              DATABRICKS_TOKEN: $(azure-databricks-token-acc)
+
+          - bash: dbt run --profiles-dir=`pwd`
+            displayName: 'Run DBT'
+            env:
+              DATABRICKS_ORGANISATION: $(azure-databricks-organization-acc)
+              DATABRICKS_CLUSTER: $(azure-databricks-cluster-acc)
+              DATABRICKS_TOKEN: $(azure-databricks-token-acc)
+
+          - bash: dbt test --profiles-dir=`pwd`
+            displayName: 'Run DBT Test'
+            env:
+              SCHEMA_NAME: 'acc_preprocessing'
+              DATABRICKS_ORGANISATION: $(azure-databricks-organization-acc)
+              DATABRICKS_CLUSTER: $(azure-databricks-cluster-acc)
+              DATABRICKS_TOKEN: $(azure-databricks-token-acc)
+
+  - stage: DeployToProduction
+    dependsOn:
+      - Test
+    condition: and(succeeded('Test'), eq(variables['build.sourceBranch'], 'refs/heads/master'))
+    jobs:
+      - ${{ if ne(variables['Build.Reason'], 'Schedule') }}:
+        - deployment: Approval
+          condition: ne(variables['Build.Reason'], 'Schedule')
+          displayName: Deploy to production
+          environment: 'Production'
+
+      - job: DeployToProduction
+        timeoutInMinutes: 300
+        steps:
+          - task: UsePythonVersion@0
+            displayName: Use Python $(python.version)
+            inputs:
+              versionSpec: $(python.version)
+
+          - task: AzureKeyVault@1
+            inputs:
+              azureSubscription: 'EuAh-S04-Acc-Odfc-Acc-01'
+              KeyVaultName: 'WeEu-S04-Prd-Kv-Odfc-02'
+              secretsFilter: '*'
+              runAsPreJob: true # Azure DevOps Services only
+
+          - script: sudo apt-get install libsasl2-dev
+            displayName: Install dependencies
+
+          - script: pip3 install dbt-spark
+            displayName: Install DBT
+
+          - bash: dbt debug --profiles-dir=`pwd`
+            displayName: DBT debug (check connection)
+            env:
+              DATABRICKS_ORGANISATION: $(azure-databricks-organization-prd)
+              DATABRICKS_CLUSTER: $(azure-databricks-cluster-prd)
+              DATABRICKS_TOKEN: $(azure-databricks-token-prd)
+
+          - bash: for i in {1..2}; do dbt run --profiles-dir=`pwd` && break || sleep 15; done
+            displayName: 'Run DBT'
+            env:
+              DATABRICKS_ORGANISATION: $(azure-databricks-organization-prd)
+              DATABRICKS_CLUSTER: $(azure-databricks-cluster-prd)
+              DATABRICKS_TOKEN: $(azure-databricks-token-prd)
+
+          - bash: dbt test --profiles-dir=`pwd`
+            displayName: 'Run DBT Test'
+            env:
+              DATABRICKS_ORGANISATION: $(azure-databricks-organization-prd)
+              DATABRICKS_CLUSTER: $(azure-databricks-cluster-prd)
+              DATABRICKS_TOKEN: $(azure-databricks-token-prd)
+
+
+schedules:
+- cron: "30 8 * * *"
+  displayName: Daily midnight build
+  branches:
+    include:
+    - master
+  always: true

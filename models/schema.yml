@@ -9,9 +9,10 @@ models:
         description: The name of the beer
         tests:
           - not_null
-          - unique
       - name: style
+        description: The style of the beer as determined by the brewery
       - name: brewery
+        description: Brewery name as mentioned in the chamber of commerce
       - name: city
       - name: state
         tests:

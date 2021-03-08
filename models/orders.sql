@@ -1,7 +1,7 @@
 {{
   config(
     materialized='table',
-    file_format='parquet'
+    file_format='delta'
   )
 }}
 
